@@ -1,10 +1,12 @@
 const express = require("express")
-const { route } = require("./auth-route")
+const { authCheck } = require("../middlewares/authCheck")
 const userRouter = express.Router()
+const userController = require("../controllers/user-controller")
+
 
 userRouter.get("/")
-userRouter.patch("/update-profile")
-userRouter.delete("/:id")
+userRouter.patch("/update-profile",authCheck,userController.updateUser)
+userRouter.delete("/:id",authCheck, userController.deleteUser )
 
 
 module.exports = userRouter
