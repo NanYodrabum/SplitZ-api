@@ -1,6 +1,7 @@
 const express = require("express");
 const billRouter = express.Router();
 const billController = require("../controllers/bills-controller");
+const { authCheck } = require("../middlewares/authCheck");
 
 // Apply authentication to all bill routes
 billRouter.use(authCheck);
