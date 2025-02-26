@@ -2,6 +2,9 @@ const express = require("express");
 const billRouter = express.Router();
 const billController = require("../controllers/bills-controller");
 
+// Apply authentication to all bill routes
+billRouter.use(authCheck);
+
 billRouter.post("/", billController.createBill);
 billRouter.get("/", billController.getAllBill);
 billRouter.get("/:id", billController.getSingleBill);

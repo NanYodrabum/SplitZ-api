@@ -2,6 +2,9 @@ const express = require("express");
 const itemRouter = express.Router();
 const itemController = require("../controllers/item-controller");
 
+// Apply authentication to all item routes
+itemRouter.use(authCheck);
+
 itemRouter.post("/", itemController.createItem);
 itemRouter.get("/:id", itemController.getItem);
 itemRouter.patch("/:id", itemController.updateItem);
