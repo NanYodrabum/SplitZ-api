@@ -4,8 +4,13 @@ const express = require("express");
 const cors = require("cors");
 const notFound = require("./middlewares/notFound");
 const handleError = require("./middlewares/handleError");
-const authRoute = require("./routes/auth-route");
+const authRouter = require("./routes/auth-route");
 const userRouter = require("./routes/user-route");
+const billRouter = require("./routes/bills-route");
+const itemRouter = require("./routes/item-route");
+const shareItemRouter = require("./routes/itemShare-route");
+const splitRouter = require("./routes/split-route");
+const paymentRouter = require("./routes/payment-route");
 const app = express();
 
 app.use(
@@ -14,8 +19,13 @@ app.use(
 app.use(cors());
 app.use(express.json());
 
-app.use("/auth", authRoute);
+app.use("/auth", authRouter);
 app.use("/user", userRouter);
+app.use("/bills", billRouter);
+app.use("/items", itemRouter);
+app.use("/shares", shareItemRouter)
+app.use("/split", splitRouter)
+app.use("/payment", paymentRouter)
 
 // notFound
 app.use(notFound);
