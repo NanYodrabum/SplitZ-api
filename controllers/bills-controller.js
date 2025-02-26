@@ -92,12 +92,28 @@ exports.getAllBill = async (req, res, next) => {
   }
 };
 
-exports.getSingleBill = async (req, res, next) => {
+exports.getSingleBill = async (req, res) => {
   try {
     const { id } = req.params;
     
+    // Check if id is provided
+    if (!id) {
+      return res.status(400).json({ message: 'Bill ID is required' });
+    }
+    
+    // Parse id to integer since Prisma expects an integer for Int fields
+    const billId = parseInt(id, 10);
+    
+    // Check if parsed id is a valid number
+    if (isNaN(billId)) {
+      return res.status(400).json({ message: 'Invalid bill ID format' });
+    }
+    
+    // Now we can safely query with a valid ID
     const bill = await prisma.bill.findUnique({
-      where: { id: parseInt(id) },
+      where: {
+        id: billId
+      },
       include: {
         participants: true,
         items: {
@@ -111,17 +127,18 @@ exports.getSingleBill = async (req, res, next) => {
         }
       }
     });
-    
+
     if (!bill) {
-      return res.status(404).json({ message: "Bill not found" });
+      return res.status(404).json({ message: 'Bill not found' });
     }
-    
-    res.json({ 
-      message: "Bill retrieved successfully", 
-      data: bill 
-    });
+
+    return res.status(200).json(bill);
   } catch (error) {
-    next(error);
+    console.error('Error retrieving bill:', error);
+    return res.status(500).json({ 
+      message: 'Failed to retrieve bill',
+      error: error.message 
+    });
   }
 };
 
