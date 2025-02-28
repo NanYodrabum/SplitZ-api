@@ -1,7 +1,0 @@
-const express = require("express")
-const paymentRouter = express.Router()
-const paymentController = require("../controllers/payment-controller")
-
-paymentRouter.patch("/",paymentController.updataPayment)
-
-module.exports = paymentRouter
