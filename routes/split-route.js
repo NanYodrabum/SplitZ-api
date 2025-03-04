@@ -8,6 +8,6 @@ splitRouter.use(authCheck);
 
 // Use the exported controller functions
 splitRouter.get("/", splitController.splitSummary);
-splitRouter.get("/user/:otherUserId", splitController.userSplitDetails);
+// splitRouter.get("/user/:otherUserId", splitController.userSplitDetails);
 
 module.exports = splitRouter;

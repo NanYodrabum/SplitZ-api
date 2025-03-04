@@ -14,6 +14,6 @@ authRouter.post(
   authControllers.register
 );
 authRouter.post("/login", validateWithZod(loginSchema), authControllers.login);
-authRouter.post("/me", authCheck ,authControllers.currentUser);
+// authRouter.post("/me", authCheck ,authControllers.currentUser);
 
 module.exports = authRouter;
