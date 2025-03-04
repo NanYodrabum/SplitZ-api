@@ -424,52 +424,208 @@ exports.getSingleBill = async (req, res, next) => {
 // Update a bill
 exports.editBill = async (req, res, next) => {
   try {
-    console.log("editBill - Raw params:", req.params);
-    
     const { id } = req.params;
     const userId = req.user.id;
-    const { name, description, category } = req.body;
+    const { name, description, category, date, totalAmount, participants, items } = req.body;
     
-    // Check if id exists
-    if (id === undefined || id === null) {
-      console.log("Bill ID is missing in request params");
+    if (!id) {
       return next(createError(400, 'Bill ID is required'));
     }
     
-    // Convert ID to number (Prisma expects this format)
     const billId = parseInt(id, 10);
-    
     if (isNaN(billId)) {
-      console.log(`Invalid ID format: ${id} converts to NaN`);
-      return next(createError(400, 'Invalid bill ID format - must be a number'));
+      return next(createError(400, 'Invalid bill ID format'));
     }
-    
-    console.log(`Looking for bill with ID: ${billId}`);
-    
-    // First check if bill exists and user is the creator
-    const bills = await prisma.bill.findMany({
+
+    // Check if bill exists and user is authorized
+    const existingBill = await prisma.bill.findUnique({
       where: { id: billId },
-      take: 1
+      include: {
+        participants: true,
+        items: {
+          include: {
+            splits: true
+          }
+        }
+      }
     });
     
-    if (!bills || bills.length === 0) {
+    if (!existingBill) {
       return next(createError(404, 'Bill not found'));
     }
     
-    const bill = bills[0];
-    
-    if (bill.userId !== userId) {
+    if (existingBill.userId !== userId) {
       return next(createError(403, 'Only the bill creator can edit it'));
     }
     
-    // Update basic bill details
-    const updatedBill = await prisma.bill.updateMany({
-      where: { id: billId },
-      data: {
-        name,
-        description,
-        category,
-        updatedAt: new Date()
+    // Update everything in a transaction
+    await prisma.$transaction(async (tx) => {
+      // 1. Update basic bill details
+      await tx.bill.update({
+        where: { id: billId },
+        data: {
+          name,
+          description,
+          category,
+          totalAmount,
+          createdAt: date ? new Date(date) : existingBill.createdAt,
+          updatedAt: new Date()
+        }
+      });
+      
+      // 2. Handle participants
+      const participantMap = new Map(); // Map frontend ids to database ids
+      const existingParticipantIds = new Set(existingBill.participants.map(p => p.id));
+      const newParticipantIds = new Set();
+      
+      // Process each participant from the request
+      for (const participant of participants) {
+        let dbParticipantId;
+        
+        if (participant.id && existingBill.participants.some(p => p.id === participant.id)) {
+          // Update existing participant
+          await tx.billParticipant.update({
+            where: { id: participant.id },
+            data: {
+              name: participant.name,
+              userId: participant.userId,
+              isCreator: participant.isCreator || false
+            }
+          });
+          dbParticipantId = participant.id;
+          newParticipantIds.add(participant.id);
+        } else {
+          // Create new participant
+          const newParticipant = await tx.billParticipant.create({
+            data: {
+              billId,
+              name: participant.name,
+              userId: participant.userId,
+              isCreator: participant.isCreator || false
+            }
+          });
+          dbParticipantId = newParticipant.id;
+          newParticipantIds.add(newParticipant.id);
+        }
+        
+        // Store mapping of frontend id to database id
+        participantMap.set(participant.id.toString(), dbParticipantId);
+      }
+      
+      // Delete participants that are no longer present
+      const participantsToDelete = [...existingParticipantIds].filter(id => !newParticipantIds.has(id));
+      
+      for (const participantId of participantsToDelete) {
+        // Delete all splits for this participant first
+        await tx.itemSplit.deleteMany({
+          where: { billParticipantId: participantId }
+        });
+        
+        // Then delete the participant
+        await tx.billParticipant.delete({
+          where: { id: participantId }
+        });
+      }
+      
+      // 3. Handle items and splits
+      const existingItemIds = new Set(existingBill.items.map(i => i.id));
+      const newItemIds = new Set();
+      
+      // Process each item from the request
+      for (const item of items) {
+        // Calculate amounts
+        const basePrice = parseFloat(item.basePrice) || 0;
+        const taxPercent = parseFloat(item.taxPercent) || 0;
+        const servicePercent = parseFloat(item.servicePercent) || 0;
+        
+        const taxAmount = (basePrice * taxPercent) / 100;
+        const serviceAmount = (basePrice * servicePercent) / 100;
+        const itemTotal = basePrice + taxAmount + serviceAmount;
+        
+        let dbItemId;
+        
+        if (item.id && existingBill.items.some(i => i.id === item.id)) {
+          // Update existing item
+          await tx.billItem.update({
+            where: { id: item.id },
+            data: {
+              name: item.name,
+              basePrice,
+              taxPercent,
+              taxAmount,
+              servicePercent,
+              serviceAmount,
+              totalAmount: itemTotal,
+              updatedAt: new Date()
+            }
+          });
+          dbItemId = item.id;
+          newItemIds.add(item.id);
+          
+          // Delete existing splits for this item to recreate them
+          await tx.itemSplit.deleteMany({
+            where: { billItemId: item.id }
+          });
+        } else {
+          // Create new item
+          const newItem = await tx.billItem.create({
+            data: {
+              billId,
+              name: item.name,
+              basePrice,
+              taxPercent,
+              taxAmount,
+              servicePercent,
+              serviceAmount,
+              totalAmount: itemTotal
+            }
+          });
+          dbItemId = newItem.id;
+          newItemIds.add(newItem.id);
+        }
+        
+        // Create splits for this item
+        if (item.splitWith && item.splitWith.length > 0) {
+          const shareAmount = itemTotal / item.splitWith.length;
+          
+          for (const splitParticipantId of item.splitWith) {
+            const dbParticipantId = participantMap.get(splitParticipantId.toString());
+            
+            if (!dbParticipantId) {
+              console.log(`Warning: Could not find participant mapping for ID ${splitParticipantId}`);
+              continue;
+            }
+            
+            // Get participant details
+            const participant = participants.find(p => p.id.toString() === splitParticipantId.toString());
+            
+            // Create the split
+            await tx.itemSplit.create({
+              data: {
+                billItemId: dbItemId,
+                billParticipantId: dbParticipantId,
+                shareAmount,
+                paymentStatus: 'pending', // Reset to pending for edited items
+                userId: participant?.userId || null
+              }
+            });
+          }
+        }
+      }
+      
+      // Delete items that are no longer present
+      const itemsToDelete = [...existingItemIds].filter(id => !newItemIds.has(id));
+      
+      for (const itemId of itemsToDelete) {
+        // Delete all splits for this item first
+        await tx.itemSplit.deleteMany({
+          where: { billItemId: itemId }
+        });
+        
+        // Then delete the item
+        await tx.billItem.delete({
+          where: { id: itemId }
+        });
       }
     });
     
@@ -479,7 +635,8 @@ exports.editBill = async (req, res, next) => {
         id: billId,
         name,
         description,
-        category
+        category,
+        totalAmount
       }
     });
   } catch (error) {
@@ -487,6 +644,71 @@ exports.editBill = async (req, res, next) => {
     next(createError(500, 'Failed to update bill'));
   }
 };
+// exports.editBill = async (req, res, next) => {
+//   try {
+//     console.log("editBill - Raw params:", req.params);
+    
+//     const { id } = req.params;
+//     const userId = req.user.id;
+//     const { name, description, category } = req.body;
+    
+//     // Check if id exists
+//     if (id === undefined || id === null) {
+//       console.log("Bill ID is missing in request params");
+//       return next(createError(400, 'Bill ID is required'));
+//     }
+    
+//     // Convert ID to number (Prisma expects this format)
+//     const billId = parseInt(id, 10);
+    
+//     if (isNaN(billId)) {
+//       console.log(`Invalid ID format: ${id} converts to NaN`);
+//       return next(createError(400, 'Invalid bill ID format - must be a number'));
+//     }
+    
+//     console.log(`Looking for bill with ID: ${billId}`);
+    
+//     // First check if bill exists and user is the creator
+//     const bills = await prisma.bill.findMany({
+//       where: { id: billId },
+//       take: 1
+//     });
+    
+//     if (!bills || bills.length === 0) {
+//       return next(createError(404, 'Bill not found'));
+//     }
+    
+//     const bill = bills[0];
+    
+//     if (bill.userId !== userId) {
+//       return next(createError(403, 'Only the bill creator can edit it'));
+//     }
+    
+//     // Update basic bill details
+//     const updatedBill = await prisma.bill.updateMany({
+//       where: { id: billId },
+//       data: {
+//         name,
+//         description,
+//         category,
+//         updatedAt: new Date()
+//       }
+//     });
+    
+//     res.status(200).json({
+//       message: 'Bill updated successfully',
+//       data: {
+//         id: billId,
+//         name,
+//         description,
+//         category
+//       }
+//     });
+//   } catch (error) {
+//     console.error('Error updating bill:', error);
+//     next(createError(500, 'Failed to update bill'));
+//   }
+// };
 
 // Delete a bill
 exports.deleteBill = async (req, res, next) => {
