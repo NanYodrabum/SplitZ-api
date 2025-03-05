@@ -2,9 +2,240 @@ const prisma = require('../configs/prisma');
 const createError = require('../utils/createError');
 
 // Get summary of all splits for the logged-in user
+// exports.splitSummary = async (req, res, next) => {
+//   try {
+//     const userId = req.user.id;
+
+//     // Find all bills where the user is either the creator or a participant
+//     const bills = await prisma.bill.findMany({
+//       where: {
+//         OR: [
+//           { userId },
+//           {
+//             participants: {
+//               some: {
+//                 userId
+//               }
+//             }
+//           }
+//         ]
+//       },
+//       include: {
+//         participants: true,
+//         items: {
+//           include: {
+//             splits: {
+//               include: {
+//                 billParticipant: true
+//               }
+//             }
+//           }
+//         }
+//       }
+//     });
+
+//     // Calculate how much the user is owed (as bill creator)
+//     let totalOwedToUser = 0;
+//     let totalUserOwes = 0;
+    
+//     // People who owe the user
+//     const peopleWhoOweUser = [];
+//     // People the user owes
+//     const peopleUserOwes = [];
+
+//     for (const bill of bills) {
+//       const isCreator = bill.userId === userId;
+      
+//       for (const item of bill.items) {
+//         for (const split of item.splits) {
+//           const splitParticipantId = split.billParticipant.userId;
+//           const participantName = split.billParticipant.name;
+          
+//           // Skip if the split is already completed
+//           if (split.paymentStatus === 'completed') {
+//             continue;
+//           }
+          
+//           if (isCreator && splitParticipantId !== userId) {
+//             // Creator is owed money by this participant
+//             totalOwedToUser += split.shareAmount;
+            
+//             // Add to the list of people who owe the user
+//             const existingPerson = peopleWhoOweUser.find(p => p.userId === splitParticipantId);
+//             if (existingPerson) {
+//               existingPerson.amount += split.shareAmount;
+//             } else {
+//               peopleWhoOweUser.push({
+//                 userId: splitParticipantId,
+//                 name: participantName,
+//                 amount: split.shareAmount
+//               });
+//             }
+//           } else if (!isCreator && splitParticipantId === userId) {
+//             // User owes money to the bill creator
+//             totalUserOwes += split.shareAmount;
+            
+//             // Add to the list of people the user owes
+//             const existingPerson = peopleUserOwes.find(p => p.userId === bill.userId);
+//             if (existingPerson) {
+//               existingPerson.amount += split.shareAmount;
+//             } else {
+//               // Find the creator's name
+//               const creator = bill.participants.find(p => p.userId === bill.userId);
+//               peopleUserOwes.push({
+//                 userId: bill.userId,
+//                 name: creator ? creator.name : 'Unknown',
+//                 amount: split.shareAmount
+//               });
+//             }
+//           }
+//         }
+//       }
+//     }
+
+//     // Calculate net balance
+//     const netBalance = totalOwedToUser - totalUserOwes;
+
+//     res.status(200).json({
+//       totalOwedToUser,
+//       totalUserOwes,
+//       netBalance,
+//       peopleWhoOweUser: peopleWhoOweUser.sort((a, b) => b.amount - a.amount), // Sort by amount in descending order
+//       peopleUserOwes: peopleUserOwes.sort((a, b) => b.amount - a.amount)
+//     });
+//   } catch (error) {
+//     console.error('Error calculating split summary:', error);
+//     next(createError(500, 'Failed to calculate split summary'));
+//   }
+// };
+// exports.splitSummary = async (req, res, next) => {
+//   try {
+//     const userId = req.user.id;
+
+//     // Find all bills where the user is either the creator or a participant
+//     const bills = await prisma.bill.findMany({
+//       where: {
+//         OR: [
+//           { userId },
+//           {
+//             participants: {
+//               some: {
+//                 userId
+//               }
+//             }
+//           }
+//         ]
+//       },
+//       include: {
+//         participants: true,
+//         items: {
+//           include: {
+//             splits: {
+//               include: {
+//                 billParticipant: true
+//               }
+//             }
+//           }
+//         }
+//       }
+//     });
+
+//     // Calculate how much the user is owed (as bill creator)
+//     let totalOwedToUser = 0;
+//     let totalUserOwes = 0;
+    
+//     // People who owe the user
+//     const peopleWhoOweUser = [];
+//     // People the user owes
+//     const peopleUserOwes = [];
+
+//     for (const bill of bills) {
+//       if (!bill) continue;
+      
+//       const isCreator = bill.userId === userId;
+      
+//       if (!bill.items) continue;
+      
+//       for (const item of bill.items) {
+//         if (!item || !item.splits) continue;
+        
+//         for (const split of item.splits) {
+//           // Skip if billParticipant is null or undefined
+//           if (!split || !split.billParticipant) {
+//             continue;
+//           }
+          
+//           // Skip if userId is null or undefined
+//           if (split.billParticipant.userId === null || 
+//               split.billParticipant.userId === undefined) {
+//             continue;
+//           }
+          
+//           const splitParticipantId = split.billParticipant.userId;
+//           const participantName = split.billParticipant.name || 'Unknown';
+          
+//           // Skip if the split is already completed
+//           if (split.paymentStatus === 'completed') {
+//             continue;
+//           }
+          
+//           if (isCreator && splitParticipantId !== userId) {
+//             // Creator is owed money by this participant
+//             totalOwedToUser += split.shareAmount || 0;
+            
+//             // Add to the list of people who owe the user
+//             const existingPerson = peopleWhoOweUser.find(p => p.userId === splitParticipantId);
+//             if (existingPerson) {
+//               existingPerson.amount += split.shareAmount || 0;
+//             } else {
+//               peopleWhoOweUser.push({
+//                 userId: splitParticipantId,
+//                 name: participantName,
+//                 amount: split.shareAmount || 0
+//               });
+//             }
+//           } else if (!isCreator && splitParticipantId === userId) {
+//             // User owes money to the bill creator
+//             totalUserOwes += split.shareAmount || 0;
+            
+//             // Add to the list of people the user owes
+//             const existingPerson = peopleUserOwes.find(p => p.userId === bill.userId);
+//             if (existingPerson) {
+//               existingPerson.amount += split.shareAmount || 0;
+//             } else {
+//               // Find the creator's name
+//               const creator = bill.participants && 
+//                              bill.participants.find(p => p && p.userId === bill.userId);
+//               peopleUserOwes.push({
+//                 userId: bill.userId,
+//                 name: creator && creator.name ? creator.name : 'Unknown',
+//                 amount: split.shareAmount || 0
+//               });
+//             }
+//           }
+//         }
+//       }
+//     }
+
+//     // Calculate net balance
+//     const netBalance = totalOwedToUser - totalUserOwes;
+
+//     res.status(200).json({
+//       totalOwedToUser,
+//       totalUserOwes,
+//       netBalance,
+//       peopleWhoOweUser: peopleWhoOweUser.sort((a, b) => b.amount - a.amount),
+//       peopleUserOwes: peopleUserOwes.sort((a, b) => b.amount - a.amount)
+//     });
+//   } catch (error) {
+//     console.error('Error calculating split summary:', error);
+//     next(createError(500, 'Failed to calculate split summary'));
+//   }
+// };
 exports.splitSummary = async (req, res, next) => {
   try {
     const userId = req.user.id;
+    console.log("Calculating split summary for user:", userId);
 
     // Find all bills where the user is either the creator or a participant
     const bills = await prisma.bill.findMany({
@@ -34,6 +265,8 @@ exports.splitSummary = async (req, res, next) => {
       }
     });
 
+    console.log(`Found ${bills.length} bills for analysis`);
+
     // Calculate how much the user is owed (as bill creator)
     let totalOwedToUser = 0;
     let totalUserOwes = 0;
@@ -44,48 +277,76 @@ exports.splitSummary = async (req, res, next) => {
     const peopleUserOwes = [];
 
     for (const bill of bills) {
+      if (!bill) continue;
+      
       const isCreator = bill.userId === userId;
+      console.log(`Bill ${bill.id}: User is ${isCreator ? 'creator' : 'participant'}`);
+      
+      if (!bill.items || !Array.isArray(bill.items)) continue;
       
       for (const item of bill.items) {
+        if (!item || !item.splits || !Array.isArray(item.splits)) continue;
+        
         for (const split of item.splits) {
-          const splitParticipantId = split.billParticipant.userId;
-          const participantName = split.billParticipant.name;
+          // Handle missing billParticipant more carefully
+          if (!split) continue;
+          
+          // For debugging
+          console.log(`Processing split ID ${split.id}, payment status: ${split.paymentStatus}`);
           
           // Skip if the split is already completed
           if (split.paymentStatus === 'completed') {
+            console.log(`  Skipping split ${split.id} - already completed`);
             continue;
           }
           
+          // Extract participant info safely
+          const billParticipant = split.billParticipant || {};
+          const splitParticipantId = billParticipant.userId;
+          const participantName = billParticipant.name || 'Unknown';
+          
+          // Skip invalid participants but log it
+          if (splitParticipantId === null || splitParticipantId === undefined) {
+            console.log(`  Skipping split ${split.id} - invalid participant ID`);
+            continue;
+          }
+          
+          // Calculate amount (with fallback to 0)
+          const splitAmount = split.shareAmount || 0;
+          
           if (isCreator && splitParticipantId !== userId) {
             // Creator is owed money by this participant
-            totalOwedToUser += split.shareAmount;
+            console.log(`  Adding ${splitAmount} to money owed to user by ${participantName}`);
+            totalOwedToUser += splitAmount;
             
             // Add to the list of people who owe the user
             const existingPerson = peopleWhoOweUser.find(p => p.userId === splitParticipantId);
             if (existingPerson) {
-              existingPerson.amount += split.shareAmount;
+              existingPerson.amount += splitAmount;
             } else {
               peopleWhoOweUser.push({
                 userId: splitParticipantId,
                 name: participantName,
-                amount: split.shareAmount
+                amount: splitAmount
               });
             }
           } else if (!isCreator && splitParticipantId === userId) {
             // User owes money to the bill creator
-            totalUserOwes += split.shareAmount;
+            console.log(`  Adding ${splitAmount} to money user owes to ${bill.userId}`);
+            totalUserOwes += splitAmount;
             
             // Add to the list of people the user owes
             const existingPerson = peopleUserOwes.find(p => p.userId === bill.userId);
             if (existingPerson) {
-              existingPerson.amount += split.shareAmount;
+              existingPerson.amount += splitAmount;
             } else {
               // Find the creator's name
-              const creator = bill.participants.find(p => p.userId === bill.userId);
+              const creator = bill.participants && 
+                             bill.participants.find(p => p && p.userId === bill.userId);
               peopleUserOwes.push({
                 userId: bill.userId,
-                name: creator ? creator.name : 'Unknown',
-                amount: split.shareAmount
+                name: creator && creator.name ? creator.name : 'Unknown',
+                amount: splitAmount
               });
             }
           }
@@ -95,12 +356,14 @@ exports.splitSummary = async (req, res, next) => {
 
     // Calculate net balance
     const netBalance = totalOwedToUser - totalUserOwes;
+    
+    console.log(`Calculation complete: Owed to user: ${totalOwedToUser}, User owes: ${totalUserOwes}`);
 
     res.status(200).json({
       totalOwedToUser,
       totalUserOwes,
       netBalance,
-      peopleWhoOweUser: peopleWhoOweUser.sort((a, b) => b.amount - a.amount), // Sort by amount in descending order
+      peopleWhoOweUser: peopleWhoOweUser.sort((a, b) => b.amount - a.amount),
       peopleUserOwes: peopleUserOwes.sort((a, b) => b.amount - a.amount)
     });
   } catch (error) {

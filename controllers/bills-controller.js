@@ -154,6 +154,151 @@ exports.getAllBill = async (req, res, next) => {
 };
 
 // Get single bill with all details
+// exports.getSingleBill = async (req, res, next) => {
+//   try {
+//     const { id } = req.params;
+//     const userId = req.user.id;
+    
+//     if (!id) {
+//       return next(createError(400, 'Bill ID is required'));
+//     }
+    
+//     const billId = parseInt(id, 10);
+    
+//     if (isNaN(billId)) {
+//       return next(createError(400, 'Invalid bill ID format'));
+//     }
+
+//     // Get bill with all related data
+//     const bill = await prisma.bill.findUnique({
+//       where: {
+//         id: billId
+//       },
+//       include: {
+//         user: {
+//           select: {
+//             id: true,
+//             name: true,
+//             email: true
+//           }
+//         },
+//         participants: {
+//           include: {
+//             itemsSplit: true // Include splits for calculating total amount
+//           }
+//         },
+//         items: {
+//           include: {
+//             splits: {
+//               include: {
+//                 billParticipant: {
+//                   select: {
+//                     id: true,
+//                     name: true,
+//                     userId: true,
+//                     isCreator: true
+//                   }
+//                 }
+//               }
+//             }
+//           }
+//         }
+//       }
+//     });
+
+//     if (!bill) {
+//       return next(createError(404, 'Bill not found'));
+//     }
+
+//     // Check user access
+//     const isCreator = bill.userId === userId;
+//     const isParticipant = bill.participants.some(p => p.userId === userId);
+    
+//     if (!isCreator && !isParticipant) {
+//       return next(createError(403, 'You do not have access to this bill'));
+//     }
+
+//     // Format items with split information
+//     const formattedItems = bill.items.map(item => {
+//       // Get unique participant names for this item
+//       const participantNames = item.splits.map(split => split.billParticipant.name);
+      
+//       return {
+//         id: item.id,
+//         name: item.name,
+//         basePrice: item.basePrice,
+//         taxPercent: item.taxPercent,
+//         taxAmount: item.taxAmount,
+//         servicePercent: item.servicePercent,
+//         serviceAmount: item.serviceAmount,
+//         totalAmount: item.totalAmount,
+//         splitBetween: participantNames.join(', '), // Add split between information
+//         splits: item.splits.map(split => ({
+//           id: split.id,
+//           shareAmount: split.shareAmount,
+//           paymentStatus: split.paymentStatus,
+//           participant: {
+//             id: split.billParticipant.id,
+//             name: split.billParticipant.name
+//           }
+//         }))
+//       };
+//     });
+
+//     // Calculate participant totals
+//     const formattedParticipants = bill.participants.map(participant => {
+//       let totalAmount = 0;
+//       let pendingAmount = 0;
+//       let paidAmount = 0;
+
+//       // Calculate totals from all splits for this participant
+//       bill.items.forEach(item => {
+//         item.splits.forEach(split => {
+//           if (split.billParticipant.id === participant.id) {
+//             totalAmount += split.shareAmount;
+//             if (split.paymentStatus === 'pending') {
+//               pendingAmount += split.shareAmount;
+//             } else {
+//               paidAmount += split.shareAmount;
+//             }
+//           }
+//         });
+//       });
+
+//       return {
+//         id: participant.id,
+//         name: participant.name,
+//         totalAmount,
+//         pendingAmount,
+//         paidAmount,
+//         isCreator: participant.isCreator
+//       };
+//     });
+
+//     // Format the final response
+//     const response = {
+//       id: bill.id,
+//       name: bill.name,
+//       description: bill.description,
+//       category: bill.category,
+//       totalAmount: bill.totalAmount,
+//       createdAt: bill.createdAt,
+//       updatedAt: bill.updatedAt,
+//       creator: {
+//         id: bill.user.id,
+//         name: bill.user.name,
+//         email: bill.user.email
+//       },
+//       items: formattedItems,
+//       participants: formattedParticipants
+//     };
+
+//     res.status(200).json(response);
+//   } catch (error) {
+//     console.error('Error fetching bill:', error);
+//     next(createError(500, 'Failed to fetch bill details'));
+//   }
+// };
 exports.getSingleBill = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -212,54 +357,66 @@ exports.getSingleBill = async (req, res, next) => {
 
     // Check user access
     const isCreator = bill.userId === userId;
-    const isParticipant = bill.participants.some(p => p.userId === userId);
+    const isParticipant = bill.participants && bill.participants.some(p => p && p.userId === userId);
     
     if (!isCreator && !isParticipant) {
       return next(createError(403, 'You do not have access to this bill'));
     }
 
     // Format items with split information
-    const formattedItems = bill.items.map(item => {
+    const formattedItems = (bill.items || []).map(item => {
+      if (!item) return null;
+      
       // Get unique participant names for this item
-      const participantNames = item.splits.map(split => split.billParticipant.name);
+      const participantNames = (item.splits || [])
+        .filter(split => split && split.billParticipant)
+        .map(split => split.billParticipant.name || 'Unknown');
       
       return {
         id: item.id,
-        name: item.name,
-        basePrice: item.basePrice,
-        taxPercent: item.taxPercent,
-        taxAmount: item.taxAmount,
-        servicePercent: item.servicePercent,
-        serviceAmount: item.serviceAmount,
-        totalAmount: item.totalAmount,
+        name: item.name || 'Unnamed Item',
+        basePrice: item.basePrice || 0,
+        taxPercent: item.taxPercent || 0,
+        taxAmount: item.taxAmount || 0,
+        servicePercent: item.servicePercent || 0,
+        serviceAmount: item.serviceAmount || 0,
+        totalAmount: item.totalAmount || 0,
         splitBetween: participantNames.join(', '), // Add split between information
-        splits: item.splits.map(split => ({
-          id: split.id,
-          shareAmount: split.shareAmount,
-          paymentStatus: split.paymentStatus,
-          participant: {
-            id: split.billParticipant.id,
-            name: split.billParticipant.name
-          }
-        }))
+        splits: (item.splits || [])
+          .filter(split => split && split.billParticipant)
+          .map(split => ({
+            id: split.id,
+            shareAmount: split.shareAmount || 0,
+            paymentStatus: split.paymentStatus || 'pending',
+            participant: {
+              id: split.billParticipant.id,
+              name: split.billParticipant.name || 'Unknown'
+            }
+          }))
       };
-    });
+    }).filter(Boolean);
 
     // Calculate participant totals
-    const formattedParticipants = bill.participants.map(participant => {
+    const formattedParticipants = (bill.participants || []).map(participant => {
+      if (!participant) return null;
+      
       let totalAmount = 0;
       let pendingAmount = 0;
       let paidAmount = 0;
 
       // Calculate totals from all splits for this participant
-      bill.items.forEach(item => {
+      (bill.items || []).forEach(item => {
+        if (!item || !item.splits) return;
+        
         item.splits.forEach(split => {
+          if (!split || !split.billParticipant) return;
+          
           if (split.billParticipant.id === participant.id) {
-            totalAmount += split.shareAmount;
+            totalAmount += split.shareAmount || 0;
             if (split.paymentStatus === 'pending') {
-              pendingAmount += split.shareAmount;
+              pendingAmount += split.shareAmount || 0;
             } else {
-              paidAmount += split.shareAmount;
+              paidAmount += split.shareAmount || 0;
             }
           }
         });
@@ -267,28 +424,35 @@ exports.getSingleBill = async (req, res, next) => {
 
       return {
         id: participant.id,
-        name: participant.name,
+        name: participant.name || 'Unknown Participant',
         totalAmount,
         pendingAmount,
         paidAmount,
-        isCreator: participant.isCreator
+        isCreator: participant.isCreator || false
       };
-    });
+    }).filter(Boolean);
+
+    // Ensure user object exists
+    const creatorInfo = bill.user ? {
+      id: bill.user.id,
+      name: bill.user.name || 'Unknown',
+      email: bill.user.email || ''
+    } : {
+      id: bill.userId,
+      name: 'Unknown',
+      email: ''
+    };
 
     // Format the final response
     const response = {
       id: bill.id,
-      name: bill.name,
-      description: bill.description,
-      category: bill.category,
-      totalAmount: bill.totalAmount,
+      name: bill.name || 'Unnamed Bill',
+      description: bill.description || '',
+      category: bill.category || 'other',
+      totalAmount: bill.totalAmount || 0,
       createdAt: bill.createdAt,
       updatedAt: bill.updatedAt,
-      creator: {
-        id: bill.user.id,
-        name: bill.user.name,
-        email: bill.user.email
-      },
+      creator: creatorInfo,
       items: formattedItems,
       participants: formattedParticipants
     };
