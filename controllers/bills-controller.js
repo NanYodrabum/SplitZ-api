@@ -154,7 +154,6 @@ exports.getAllBill = async (req, res, next) => {
 };
 
 // Get single bill with all details
-
 exports.getSingleBill = async (req, res, next) => {
   try {
     const { id } = req.params;

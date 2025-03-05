@@ -6,7 +6,7 @@ const { authCheck } = require("../middlewares/authCheck");
 // Apply authentication middleware
 paymentRouter.use(authCheck);
 
-// paymentRouter.patch("/", paymentController.updataPayment)
+paymentRouter.patch("/", paymentController.updataPayment)
 paymentRouter.get("/:billId", paymentController.getPaymentSummary)
 
 module.exports = paymentRouter
