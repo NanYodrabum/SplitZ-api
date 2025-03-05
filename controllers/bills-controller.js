@@ -326,7 +326,15 @@ exports.editBill = async (req, res, next) => {
     
     const { id } = req.params;
     const userId = req.user.id;
-    const { name, description, category } = req.body;
+    const { 
+      name, 
+      description, 
+      category, 
+      date, 
+      totalAmount, 
+      participants, 
+      items 
+    } = req.body;
     
     // Check if id exists
     if (id === undefined || id === null) {
@@ -345,30 +353,179 @@ exports.editBill = async (req, res, next) => {
     console.log(`Looking for bill with ID: ${billId}`);
     
     // First check if bill exists and user is the creator
-    const bills = await prisma.bill.findMany({
+    const bill = await prisma.bill.findUnique({
       where: { id: billId },
-      take: 1
+      include: {
+        participants: true,
+        items: {
+          include: {
+            splits: true
+          }
+        }
+      }
     });
     
-    if (!bills || bills.length === 0) {
+    if (!bill) {
       return next(createError(404, 'Bill not found'));
     }
-    
-    const bill = bills[0];
     
     if (bill.userId !== userId) {
       return next(createError(403, 'Only the bill creator can edit it'));
     }
-    
-    // Update basic bill details
-    const updatedBill = await prisma.bill.updateMany({
-      where: { id: billId },
-      data: {
-        name,
-        description,
-        category,
-        updatedAt: new Date()
+
+    // Use transaction to ensure all updates are atomic
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Update basic bill details
+      const updatedBill = await tx.bill.update({
+        where: { id: billId },
+        data: {
+          name,
+          description,
+          category,
+          totalAmount,
+          updatedAt: new Date()
+        }
+      });
+
+      // Maps for keeping track of existing vs new entities
+      const existingParticipants = new Map(bill.participants.map(p => [p.id, p]));
+      const newParticipantMap = new Map(); // Will map frontend IDs to DB IDs
+      const existingItems = new Map(bill.items.map(i => [i.id, i]));
+
+      // 2. Handle participants
+      if (participants && Array.isArray(participants)) {
+        for (const participant of participants) {
+          if (existingParticipants.has(participant.id)) {
+            // Update existing participant
+            await tx.billParticipant.update({
+              where: { id: participant.id },
+              data: {
+                name: participant.name,
+                userId: participant.userId,
+                isCreator: participant.isCreator
+              }
+            });
+            newParticipantMap.set(participant.id, participant.id); // Map to the same ID
+          } else {
+            // Create new participant
+            const newParticipant = await tx.billParticipant.create({
+              data: {
+                name: participant.name,
+                userId: participant.userId,
+                billId: billId,
+                isCreator: participant.isCreator
+              }
+            });
+            newParticipantMap.set(participant.id, newParticipant.id);
+          }
+        }
+
+        // Delete participants that weren't included in the update
+        const updatedParticipantIds = new Set(participants.map(p => p.id));
+        for (const [id, _] of existingParticipants) {
+          if (!updatedParticipantIds.has(id)) {
+            // Find all splits for this participant and delete them first
+            await tx.itemSplit.deleteMany({
+              where: {
+                billParticipantId: id
+              }
+            });
+            // Then delete the participant
+            await tx.billParticipant.delete({
+              where: { id }
+            });
+          }
+        }
       }
+
+      // 3. Handle items and their splits
+      if (items && Array.isArray(items)) {
+        for (const item of items) {
+          if (existingItems.has(item.id)) {
+            // Update existing item
+            await tx.billItem.update({
+              where: { id: item.id },
+              data: {
+                name: item.name,
+                basePrice: item.basePrice,
+                taxPercent: item.taxPercent || 0,
+                taxAmount: item.taxAmount || 0,
+                servicePercent: item.servicePercent || 0,
+                serviceAmount: item.serviceAmount || 0,
+                totalAmount: item.totalAmount,
+                updatedAt: new Date()
+              }
+            });
+
+            // Delete existing splits for this item to replace with new ones
+            await tx.itemSplit.deleteMany({
+              where: {
+                billItemId: item.id
+              }
+            });
+          } else {
+            // Create new item
+            const newItem = await tx.billItem.create({
+              data: {
+                billId,
+                name: item.name,
+                basePrice: item.basePrice,
+                taxPercent: item.taxPercent || 0,
+                taxAmount: item.taxAmount || 0,
+                servicePercent: item.servicePercent || 0,
+                serviceAmount: item.serviceAmount || 0,
+                totalAmount: item.totalAmount
+              }
+            });
+            item.id = newItem.id; // Update item id for splits processing
+          }
+
+          // Create new splits for this item
+          if (item.splitWith && Array.isArray(item.splitWith)) {
+            const shareAmount = item.totalAmount / item.splitWith.length;
+            
+            for (const participantId of item.splitWith) {
+              // Use the mapping to get the correct DB participantId
+              const dbParticipantId = newParticipantMap.get(participantId);
+              
+              if (dbParticipantId) {
+                // Get user ID if available
+                const participant = participants.find(p => p.id === participantId);
+                const userId = participant?.userId || null;
+                
+                await tx.itemSplit.create({
+                  data: {
+                    shareAmount,
+                    billParticipantId: dbParticipantId,
+                    billItemId: item.id,
+                    paymentStatus: 'pending',
+                    userId
+                  }
+                });
+              }
+            }
+          }
+        }
+
+        // Delete items that weren't included in the update
+        const updatedItemIds = new Set(items.filter(i => existingItems.has(i.id)).map(i => i.id));
+        for (const [id, _] of existingItems) {
+          if (!updatedItemIds.has(id)) {
+            // Delete all splits for this item first
+            await tx.itemSplit.deleteMany({
+              where: {
+                billItemId: id
+              }
+            });
+            // Then delete the item
+            await tx.billItem.delete({
+              where: { id }
+            });
+          }
+        }
+      }
+
+      return updatedBill;
     });
     
     res.status(200).json({
@@ -377,12 +534,13 @@ exports.editBill = async (req, res, next) => {
         id: billId,
         name,
         description,
-        category
+        category,
+        totalAmount
       }
     });
   } catch (error) {
     console.error('Error updating bill:', error);
-    next(createError(500, 'Failed to update bill'));
+    next(createError(500, 'Failed to update bill: ' + error.message));
   }
 };
 
